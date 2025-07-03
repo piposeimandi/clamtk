@@ -15,8 +15,9 @@ package ClamTk::Update;
 
 use Glib 'TRUE', 'FALSE';
 
-# use strict;
-# use warnings;
+$| = 1;
+
+use Gtk3;
 $| = 1;
 
 use LWP::UserAgent;
@@ -112,67 +113,57 @@ sub show_window {
     }
     #>>>
 
-    $infobar = Gtk3::InfoBar->new;
-    $infobar->set_message_type( 'other' );
-
-    my $text = '';
+    # Remove InfoBar and use only a full-width update button
+    my $update_button;
     if ( ClamTk::Prefs->get_preference( 'Update' ) eq 'shared' ) {
-        my $label = Gtk3::Label->new;
-        $label->set_text(
-            _( 'You are configured to automatically receive updates' ) );
-        $infobar->get_content_area()->add( $label );
+        $update_button = Gtk3::Button->new(_( 'You are configured to automatically receive updates' ));
+        $update_button->set_sensitive(0);
     } else {
-        $text = _( 'Check for updates' );
-        $infobar->add_button( $text, -5 );
-
-        $infobar->signal_connect(
-            response => sub {
-                Gtk3::main_iteration while Gtk3::events_pending;
-                update_signatures();
-                Gtk3::main_iteration while Gtk3::events_pending;
-            }
-        );
+        $update_button = Gtk3::Button->new(_( 'Check for updates' ));
+        $update_button->set_hexpand(1);
+        $update_button->set_halign('fill');
+        $update_button->signal_connect( clicked => sub { update_signatures($update_button) } );
     }
-
-    $box->pack_start( Gtk3::VBox->new, TRUE, TRUE, 5 );
-
-    $pb = Gtk3::ProgressBar->new;
-    $box->pack_start( $infobar, FALSE, FALSE, 0 );
-    $box->pack_start( $pb,      FALSE, FALSE, 0 );
-
+    $box->pack_start( $update_button, FALSE, FALSE, 0 );
+    # Remove any previous progress bar
+    for my $child ($box->get_children) {
+        if ($child->isa('Gtk3::ProgressBar')) {
+            $box->remove($child);
+        }
+    }
     $view->columns_autosize();
     $box->show_all;
-    $pb->hide;
     return $box;
 }
 
-sub get_remote_TK_version {
-    my $url
-        = 'https://raw.githubusercontent.com/dave-theunsub/clamtk/master/latest';
 
-    $ENV{ HTTPS_DEBUG } = 1;
+ sub get_remote_TK_version {
+     my $url
+         = 'https://raw.githubusercontent.com/dave-theunsub/clamtk/master/latest';
 
-    my $ua = add_ua_proxy();
+     $ENV{ HTTPS_DEBUG } = 1;
 
-    my $response = $ua->get( $url );
+     my $ua = add_ua_proxy();
 
-    if ( $response->is_success ) {
-        my $content = $response->content;
-        chomp( $content );
-        # warn "remote tk version = >$content<\n";
-        return $content;
-    } else {
-        warn "failed remote tk check >", $response->status_line, "<\n";
-        return '';
-    }
+     my $response = $ua->get( $url );
 
-    return '';
-}
+     if ( $response->is_success ) {
+         my $content = $response->content;
+         chomp( $content );
+         # warn "remote tk version = >$content<\n";
+         return $content;
+     } else {
+         warn "failed remote tk check >", $response->status_line, "<\n";
+         return '';
+     }
+
+     return '';
+ }
 
 sub update_signatures {
-    $pb->{ timer } = Glib::Timeout->add( 100, \&progress_timeout, $pb );
-    $pb->show;
-    $pb->set_text( _( 'Please wait...' ) );
+    my ($update_button) = @_;
+    $update_button->set_label(_( 'Updating... 0%' ));
+    $update_button->set_sensitive(0);
 
     my $freshclam = get_freshclam_path();
     if ( ClamTk::Prefs->get_preference( 'Update' ) eq 'single' ) {
@@ -181,12 +172,6 @@ sub update_signatures {
             $freshclam .= " --config-file=$dbpath";
         }
     }
-
-    # The mirrors can be slow sometimes and may return/die
-    # 'failed' despite that the update is still in progress.
-
-    # my $update = file_handle
-    # my $update_sig_pid = process ID for $update
 
     my $update;
     my $update_sig_pid;
@@ -199,98 +184,62 @@ sub update_signatures {
         $update_sig_pid = open( $update, '-|', "$freshclam --stdout" );
         defined( $update_sig_pid )
             or do {
-            set_infobar_text( 'error',
-                _( 'Error updating: try again later' ) );
+            $update_button->set_label(_( 'Error actualizando' ));
             return 0;
             };
         alarm 0;
     };
     if ( $@ && $@ eq "failed\n" ) {
-        set_infobar_text( 'error', _( 'Error updating: try again later' ) );
+        $update_button->set_label(_( 'Error actualizando' ));
         return 0;
     }
 
-    # We don't want to print out the following lines beginning with:
-    # my $do_not_print = "DON'T|WARNING|ClamAV update process";
-
-    # We can't just print stuff out; that's bad for non-English
-    # speaking users. So, we'll grab the first couple words
-    # and try to sum it up.
-    #
-    # logg("!Database update process failed: %s (%d)\n"
-    # Downloading database patch # 25961..
-
+    my $percent = 0;
+    my $last_percent = -1;
     while ( defined( my $line = <$update> ) ) {
         Gtk3::main_iteration while Gtk3::events_pending;
-        $pb->set_text( _( 'Downloading...' ) );
         chomp( $line );
-
+        if ( $line =~ /\b(\d{1,3})%\b/ ) {
+            $percent = $1;
+            if ($percent ne $last_percent) {
+                $update_button->set_label(_( 'Updating... ' ) . "$percent%");
+                $last_percent = $percent;
+            }
+        }
         if ( $line =~ /failed/ ) {
-            # Print these out to terminal window for now
             warn $line, "\n";
-
         } elsif ( $line =~ /Database test passed./ ) {
             warn "Database test passed.\n";
-
-        } elsif ( $line =~ /^Downloading daily-(\d+).*?$/ ) {
-            # This one should probably be removed;
-            # was probably changed to the next elsif
+        } elsif ( $line =~ /^Downloading daily-(\d+).*?\u001b/ ) {
             my $new_daily = $1;
-
-            $liststore->set( $iter_hash, 0, _( 'Antivirus signatures' ),
-                1, $new_daily, );
-
-        } elsif ( $line
-            =~ q#^Retrieving https://database.clamav.net/daily-(\d+).cdiff# )
-        {
+            $liststore->set( $iter_hash, 0, _( 'Antivirus signatures' ), 1, $new_daily, );
+        } elsif ( $line =~ q#^Retrieving https://database.clamav.net/daily-(\d+).cdiff# ) {
             my $new_daily = $1;
-
-            $liststore->set( $iter_hash, 0, _( 'Antivirus signatures' ),
-                1, $new_daily, );
-
+            $liststore->set( $iter_hash, 0, _( 'Antivirus signatures' ), 1, $new_daily, );
         } elsif ( $line =~ /^Testing database/ ) {
-            $pb->set_text( _( 'Testing database' ) );
-
+            $update_button->set_label(_( 'Testing database...' ));
         } elsif ( $line =~ /^Downloading database patch # (\d+).*?$/ ) {
             my $new_daily = $1;
-
-            $liststore->set( $iter_hash, 0, _( 'Antivirus signatures' ),
-                1, $new_daily, );
-
+            $liststore->set( $iter_hash, 0, _( 'Antivirus signatures' ), 1, $new_daily, );
         } elsif ( $line =~ /Database updated/ ) {
-            $pb->set_fraction( 1.0 );
-
+            $update_button->set_label(_( 'Updating... 100%' ));
         } elsif (
-            # bytecode appears to be last
-            $line =~ /.*?bytecode.*?$/ && ( $line =~ /.*?up-to-date\.$/
-                || $line =~ /.*?up to date .*?/
-                || $line =~ /.*?updated\.$/ )
-            )
-        {
-            $pb->set_fraction( 1.0 );
+            $line =~ /.*?bytecode.*?$/ && ( $line =~ /.*?up-to-date\.$/ || $line =~ /.*?up to date .*?/ || $line =~ /.*?updated\.$/ )
+        ) {
+            $update_button->set_label(_( 'Updating... 100%' ));
         } else {
-            # warn "skipping line: >$line<\n";
             next;
         }
         Gtk3::main_iteration while Gtk3::events_pending;
     }
-    # Get local information. It would probably be okay to just
-    # keep the same number we saw during the update, but this
-    # gives the "for sure" sig version installed:
     my $local_sig_version = ClamTk::App->get_local_sig_version();
+    $liststore->set( $iter_hash, 0, _( 'Antivirus signatures' ), 1, $local_sig_version, );
+    Gtk3::main_iteration while Gtk3::events_pending;
 
-    $liststore->set( $iter_hash, 0, _( 'Antivirus signatures' ),
-        1, $local_sig_version, );
-    Glib::Source->remove( $pb->{ timer } );
-    $pb->set_fraction( 1.0 );
-    $pb->set_text( _( 'Complete' ) );
-
-    # Update infobar type and text; remove button
-    set_infobar_text( 'info', _( 'Complete' ) );
-    ClamTk::GUI::set_infobar_mode( 'info', '' );
-    $pb->hide;
-    destroy_button();
-
+    $update_button->set_label(_( 'Update completed!' ));
+    $update_button->set_sensitive(0);
+    $update_button->queue_draw;
+    Gtk3::main_iteration while Gtk3::events_pending;
     return TRUE;
 }
 
@@ -321,43 +270,57 @@ sub get_freshclam_path {
 
 sub set_infobar_text {
     my ( $type, $text ) = @_;
-    $infobar->set_message_type( $type );
-
-    for my $child ( $infobar->get_content_area->get_children ) {
-        if ( $child->isa( 'Gtk3::Label' ) ) {
-            $child->set_text( $text );
-            $infobar->queue_draw;
-        }
+    # Fuerza el tipo a 'other' para evitar azul (info) o amarillo (warning)
+    $infobar->set_message_type('other');
+    # Intenta que el InfoBar sea completamente transparente o igual al fondo
+    if ($infobar->can('override_background_color')) {
+        $infobar->override_background_color('normal', undef); # GTK3: quita color explícito
     }
-}
-
-sub set_infobar_button {
-    my ( $stock_icon, $signal ) = @_;
-    if ( !$infobar->get_action_area->get_children ) {
-        $infobar->add_button( $stock_icon, $signal );
-    } else {
-        for my $child ( $infobar->get_action_area->get_children ) {
-            if ( $child->isa( 'Gtk3::Button' ) ) {
-                $child->set_label( $stock_icon );
-            }
-        }
+    if ($infobar->can('set_name')) {
+        $infobar->set_name('clamtk-infobar');
     }
-}
-
-sub destroy_button {
-    # Remove button from $infobar
-    for my $child ( $infobar->get_action_area->get_children ) {
-        if ( $child->isa( 'Gtk3::Button' ) ) {
-            $child->destroy;
-        }
+    my $content_area = $infobar->get_content_area;
+    # Elimina todos los hijos previos
+    for my $child ($content_area->get_children) {
+        $content_area->remove($child);
     }
+    # Agrega un nuevo label con el texto
+    my $label = Gtk3::Label->new($text);
+    $content_area->add($label);
+    # No se fuerza color aquí, se deja a CSS
+    $infobar->queue_draw;
+    $label->show;
 }
 
-sub progress_timeout {
-    $pb->pulse;
+## MÉTODO NO UTILIZADO (comentado para limpieza y referencia)
+# sub set_infobar_button {
+#     my ( $stock_icon, $signal ) = @_;
+#     if ( !$infobar->get_action_area->get_children ) {
+#         $infobar->add_button( $stock_icon, $signal );
+#     } else {
+#         for my $child ( $infobar->get_action_area->get_children ) {
+#             if ( $child->isa( 'Gtk3::Button' ) ) {
+#                 $child->set_label( $stock_icon );
+#             }
+#         }
+#     }
+# }
 
-    return TRUE;
-}
+## MÉTODO NO UTILIZADO (comentado para limpieza y referencia)
+# sub destroy_button {
+#     # Remove button from $infobar
+#     for my $child ( $infobar->get_action_area->get_children ) {
+#         if ( $child->isa( 'Gtk3::Button' ) ) {
+#             $child->destroy;
+#         }
+#     }
+# }
+
+## MÉTODO NO UTILIZADO (comentado para limpieza y referencia)
+# sub progress_timeout {
+#     $pb->pulse;
+#     return TRUE;
+# }
 
 sub add_ua_proxy {
     my $agent = LWP::UserAgent->new( ssl_opts => { verify_hostname => 1 } );

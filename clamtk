@@ -37,6 +37,8 @@ use ClamTk::Startup;
 use ClamTk::Update;
 use ClamTk::Quarantine;
 use ClamTk::Whitelist;
+# use Gtk3::CssProvider;
+# use Gtk3::StyleContext;
 
 use Encode 'decode';
 use Locale::gettext;
@@ -85,5 +87,14 @@ if ( !$arg or !-e $arg ) {
 } else {
     ClamTk::Scan->filter( $arg, 1, 'startup' );
 }
+
+# Bloque de CSS personalizado deshabilitado por falta de soporte en Gtk3::CssProvider
+# my $css = Gtk3::CssProvider->new;
+# $css->load_from_path('clamtk-gtk.css');
+# Gtk3::StyleContext::add_provider_for_screen(
+#     Gtk3::Gdk::Screen::get_default(),
+#     $css,
+#     Gtk3::STYLE_PROVIDER_PRIORITY_APPLICATION
+# );
 
 # End.
