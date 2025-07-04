@@ -27,7 +27,7 @@ use Encode 'decode';
 sub get_TK_version {
 
     # Stick with %.2f format - 4.50 vice 4.5
-    return '6.18';
+    return '6.19';    # 20250703
 }
 
 sub get_path {

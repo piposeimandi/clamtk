@@ -1,5 +1,15 @@
 CHANGELOG for ClamTk:
 
+6.19 - 20250703
+---------------
+    * Refactor Update UI: All user-facing messages are now in English.
+    * The update button now displays progress and status directly (e.g., "Updating... 37%").
+    * InfoBar removed from update window for a cleaner interface.
+    * All previous Spanish texts were translated to English.
+    * El botón de actualización ahora muestra el progreso y estado directamente (por ejemplo, "Updating... 37%").
+    * Se eliminó el InfoBar de la ventana de actualización para una interfaz más limpia.
+    * Todos los textos que estaban en español fueron traducidos al inglés.
+
 6.18 - 20240126
 ---------------
     * Remove unnecessary line from #154 fix in App.pm
