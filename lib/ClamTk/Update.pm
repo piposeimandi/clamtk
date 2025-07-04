@@ -15,11 +15,6 @@ package ClamTk::Update;
 
 use Glib 'TRUE', 'FALSE';
 
-$| = 1;
-
-use Gtk3;
-$| = 1;
-
 use LWP::UserAgent;
 use Locale::gettext;
 
@@ -139,7 +134,7 @@ sub show_window {
 
  sub get_remote_TK_version {
      my $url
-         = 'https://raw.githubusercontent.com/dave-theunsub/clamtk/master/latest';
+         = 'https://raw.githubusercontent.com/piposeimandi/clamtk/master/latest';
 
      $ENV{ HTTPS_DEBUG } = 1;
 
@@ -292,35 +287,6 @@ sub set_infobar_text {
     $label->show;
 }
 
-## MÉTODO NO UTILIZADO (comentado para limpieza y referencia)
-# sub set_infobar_button {
-#     my ( $stock_icon, $signal ) = @_;
-#     if ( !$infobar->get_action_area->get_children ) {
-#         $infobar->add_button( $stock_icon, $signal );
-#     } else {
-#         for my $child ( $infobar->get_action_area->get_children ) {
-#             if ( $child->isa( 'Gtk3::Button' ) ) {
-#                 $child->set_label( $stock_icon );
-#             }
-#         }
-#     }
-# }
-
-## MÉTODO NO UTILIZADO (comentado para limpieza y referencia)
-# sub destroy_button {
-#     # Remove button from $infobar
-#     for my $child ( $infobar->get_action_area->get_children ) {
-#         if ( $child->isa( 'Gtk3::Button' ) ) {
-#             $child->destroy;
-#         }
-#     }
-# }
-
-## MÉTODO NO UTILIZADO (comentado para limpieza y referencia)
-# sub progress_timeout {
-#     $pb->pulse;
-#     return TRUE;
-# }
 
 sub add_ua_proxy {
     my $agent = LWP::UserAgent->new( ssl_opts => { verify_hostname => 1 } );
